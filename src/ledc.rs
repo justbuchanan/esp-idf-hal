@@ -44,6 +44,7 @@ const IDLE_LEVEL: u32 = 0;
 static FADE_FUNC_INSTALLED: AtomicBool = AtomicBool::new(false);
 static FADE_FUNC_INSTALLED_CS: CriticalSection = CriticalSection::new();
 
+// TODO: fix callback stuff to give it a better rust wrapper. see gpio.rs button callback for an example
 pub type LedcFadeCallback =
     Option<unsafe extern "C" fn(arg1: *const ledc_cb_param_t, arg: *mut c_void) -> bool>;
 
