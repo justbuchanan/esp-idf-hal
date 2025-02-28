@@ -3,8 +3,6 @@
 //! Interface to the [LED Control (LEDC)
 //! peripheral](https://docs.espressif.com/projects/esp-idf/en/latest/esp32c3/api-reference/peripherals/ledc.html)
 //!
-//! This is an initial implementation supporting the generation of PWM signals
-//! but no chrome and spoilers like fading.
 //!
 //! # Examples
 //!
@@ -25,6 +23,7 @@
 //! See the `examples/` folder of this repository for more.
 
 use core::borrow::Borrow;
+use core::ffi::c_void;
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicBool, Ordering};
 
@@ -44,6 +43,9 @@ const IDLE_LEVEL: u32 = 0;
 
 static FADE_FUNC_INSTALLED: AtomicBool = AtomicBool::new(false);
 static FADE_FUNC_INSTALLED_CS: CriticalSection = CriticalSection::new();
+
+pub type LedcFadeCallback =
+    Option<unsafe extern "C" fn(arg1: *const ledc_cb_param_t, arg: *mut c_void) -> bool>;
 
 crate::embedded_hal_error!(
     PwmError,
@@ -322,6 +324,87 @@ impl<'d> LedcDriver<'d> {
 
     pub fn timer(&self) -> ledc_timer_t {
         self.timer as _
+    }
+
+    /// Fade the LED to a target duty cycle over a specified time
+    pub fn fade_with_time(
+        &mut self,
+        target_duty: u32,
+        fade_time_ms: i32,
+        wait: bool,
+    ) -> Result<(), EspError> {
+        let max_duty = self.get_max_duty();
+        if target_duty > max_duty {
+            return Err(EspError::from_infallible::<ESP_ERR_INVALID_ARG>());
+        }
+
+        let fade_mode = if wait {
+            ledc_fade_mode_t_LEDC_FADE_WAIT_DONE
+        } else {
+            ledc_fade_mode_t_LEDC_FADE_NO_WAIT
+        };
+
+        unsafe {
+            esp!(ledc_set_fade_with_time(
+                self.speed_mode,
+                self.channel(),
+                target_duty,
+                fade_time_ms
+            ))?;
+            esp!(ledc_fade_start(self.speed_mode, self.channel(), fade_mode))?;
+        }
+        Ok(())
+    }
+
+    /// Fade the LED to a target duty cycle using steps
+    pub fn fade_with_step(
+        &mut self,
+        target_duty: u32,
+        step_size: u32,
+        step_time_ms: u32,
+        wait: bool,
+    ) -> Result<(), EspError> {
+        let max_duty = self.get_max_duty();
+        if target_duty > max_duty {
+            return Err(EspError::from_infallible::<ESP_ERR_INVALID_ARG>());
+        }
+
+        let fade_mode = if wait {
+            ledc_fade_mode_t_LEDC_FADE_WAIT_DONE
+        } else {
+            ledc_fade_mode_t_LEDC_FADE_NO_WAIT
+        };
+
+        unsafe {
+            esp!(ledc_set_fade_with_step(
+                self.speed_mode,
+                self.channel(),
+                target_duty,
+                step_size,
+                step_time_ms,
+            ))?;
+
+            esp!(ledc_fade_start(self.speed_mode, self.channel(), fade_mode))?;
+        }
+        Ok(())
+    }
+
+    /// Register a callback function to be called when the fade is done
+    pub fn register_fade_callback(
+        &mut self,
+        callback: LedcFadeCallback,
+        user_arg: *mut core::ffi::c_void,
+    ) -> Result<(), EspError> {
+        let mut cbs = ledc_cbs_t { fade_cb: callback };
+        unsafe {
+            esp!(ledc_cb_register(
+                self.speed_mode,
+                self.channel(),
+                &mut cbs,
+                user_arg
+            ))?;
+        }
+        Ok(())
     }
 }
 
