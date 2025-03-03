@@ -23,7 +23,6 @@
 //! See the `examples/` folder of this repository for more.
 
 use core::borrow::Borrow;
-use core::ffi::c_void;
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicBool, Ordering};
 
@@ -43,10 +42,6 @@ const IDLE_LEVEL: u32 = 0;
 
 static FADE_FUNC_INSTALLED: AtomicBool = AtomicBool::new(false);
 static FADE_FUNC_INSTALLED_CS: CriticalSection = CriticalSection::new();
-
-// TODO: fix callback stuff to give it a better rust wrapper. see gpio.rs button callback for an example
-pub type LedcFadeCallback =
-    Option<unsafe extern "C" fn(arg1: *const ledc_cb_param_t, arg: *mut c_void) -> bool>;
 
 crate::embedded_hal_error!(
     PwmError,
@@ -386,24 +381,6 @@ impl<'d> LedcDriver<'d> {
             ))?;
 
             esp!(ledc_fade_start(self.speed_mode, self.channel(), fade_mode))?;
-        }
-        Ok(())
-    }
-
-    /// Register a callback function to be called when the fade is done
-    pub fn register_fade_callback(
-        &mut self,
-        callback: LedcFadeCallback,
-        user_arg: *mut core::ffi::c_void,
-    ) -> Result<(), EspError> {
-        let mut cbs = ledc_cbs_t { fade_cb: callback };
-        unsafe {
-            esp!(ledc_cb_register(
-                self.speed_mode,
-                self.channel(),
-                &mut cbs,
-                user_arg
-            ))?;
         }
         Ok(())
     }
